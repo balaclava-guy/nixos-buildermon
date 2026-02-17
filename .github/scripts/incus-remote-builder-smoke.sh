@@ -79,12 +79,38 @@ fi
 
 # Configure the bridge to use host internet access
 ${INCUS_BIN} network set incusbr0 ipv4.nat true >/dev/null 2>&1 || true
-${INCUS_BIN} network set incusbr0 ipv4.firewall false >/dev/null 2>&1 || true
-${INCUS_BIN} network set incusbr0 ipv6.firewall false >/dev/null 2>&1 || true
+${INCUS_BIN} network set incusbr0 ipv6.nat true >/dev/null 2>&1 || true
 ${INCUS_BIN} network set incusbr0 dns.mode=dynamic >/dev/null 2>&1 || true
 
 # Enable IP forwarding on the host (required for NAT)
 sysctl net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+sysctl net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
+
+# Add explicit iptables rules for masquerading if NAT isn't working
+# Get the primary outgoing interface
+PRIMARY_IF=$(ip route show default | awk '/default/ {print $5}' | head -1)
+if [[ -n "${PRIMARY_IF}" ]]; then
+  # Masquerade traffic from bridge to outgoing interface
+  iptables -t nat -C POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  
+  # Allow forwarding traffic
+  iptables -C FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || true
+  iptables -C FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+  
+  # Also accept all forwarded traffic on the bridge (more permissive for debugging)
+  iptables -C FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || true
+  iptables -C FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || true
+fi
+
+log "Current iptables NAT rules:"
+iptables -t nat -L POSTROUTING -n 2>/dev/null || true
+log "Current iptables filter rules:"
+iptables -L FORWARD -n 2>/dev/null || true
 
 if ! ${INCUS_BIN} profile device get default eth0 network >/dev/null 2>&1; then
   log "Adding bridged NIC to default profile"
@@ -160,7 +186,7 @@ wait_for_network() {
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip route show 2>/dev/null || true'
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ping -c 1 -W 2 8.8.8.8 2>&1 || echo "Ping failed"'
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'curl -s --max-time 3 https://cache.nixos.org/nix-cache-info 2>&1 || echo "Curl to cache failed"'
-  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'nslookup cache.nixos.org 2>&1 || echo "DNS resolution failed"'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'host cache.nixos.org 8.8.8.8 2>&1 || echo "DNS resolution failed"'
   exit 1
 }
 

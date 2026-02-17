@@ -89,28 +89,24 @@ sysctl net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
 # Add explicit iptables rules for masquerading if NAT isn't working
 # Get the primary outgoing interface
 PRIMARY_IF=$(ip route show default | awk '/default/ {print $5}' | head -1)
+log "Primary outgoing interface: ${PRIMARY_IF}"
 if [[ -n "${PRIMARY_IF}" ]]; then
-  # Masquerade traffic from bridge to outgoing interface
-  iptables -t nat -C POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || \
-    iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  # Add masquerade rule for all private ranges going through primary interface
+  iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  iptables -t nat -A POSTROUTING -s 172.16.0.0/12 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  iptables -t nat -A POSTROUTING -s 192.168.0.0/16 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
   
-  # Allow forwarding traffic
-  iptables -C FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || true
-  iptables -C FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-  
-  # Also accept all forwarded traffic on the bridge (more permissive for debugging)
-  iptables -C FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || true
-  iptables -C FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || true
+  # Allow forwarding traffic both directions
+  iptables -A FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || true
+  iptables -A FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+  iptables -A FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || true
+  iptables -A FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || true
 fi
 
-log "Current iptables NAT rules:"
-iptables -t nat -L POSTROUTING -n 2>/dev/null || true
-log "Current iptables filter rules:"
-iptables -L FORWARD -n 2>/dev/null || true
+log "Current iptables NAT rules (POSTROUTING):"
+iptables -t nat -L POSTROUTING -n -v 2>/dev/null || true
+log "Current iptables filter rules (FORWARD):"
+iptables -L FORWARD -n -v 2>/dev/null || true
 
 if ! ${INCUS_BIN} profile device get default eth0 network >/dev/null 2>&1; then
   log "Adding bridged NIC to default profile"

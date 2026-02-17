@@ -285,7 +285,7 @@ log "Building server package"
 SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#server" | tr -d '\r')"
 
 log "Building web assets package"
-WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#web" | tr -d '\r')"
+WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --option sandbox false --no-link --print-out-paths .#web" | tr -d '\r')"
 
 log "Starting daemon log forwarder (journalctl -> tee -> /var/log/nom-output.log)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log' >/var/log/nom-forwarder.log 2>&1 &"

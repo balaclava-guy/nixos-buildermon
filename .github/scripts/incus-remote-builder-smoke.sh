@@ -60,6 +60,17 @@ if ! ${INCUS_BIN} info >/dev/null 2>&1; then
   ${INCUS_BIN} admin init --auto
 fi
 
+# Ensure a default storage pool and root disk on the default profile
+if ! ${INCUS_BIN} storage show default >/dev/null 2>&1; then
+  log "Creating default storage pool"
+  ${INCUS_BIN} storage create default dir >/dev/null
+fi
+
+if ! ${INCUS_BIN} profile device get default root pool >/dev/null 2>&1; then
+  log "Adding root disk to default profile"
+  ${INCUS_BIN} profile device add default root disk path=/ pool=default >/dev/null
+fi
+
 # Always ensure the images remote matches what we expect
 ${INCUS_BIN} remote remove --force images >/dev/null 2>&1 || ${INCUS_BIN} remote remove images >/dev/null 2>&1 || true
 log "Adding images remote"

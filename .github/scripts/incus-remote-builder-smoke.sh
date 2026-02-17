@@ -174,6 +174,24 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/nixos-builder-mon 
 log "Ensuring nix-daemon is active"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'systemctl start nix-daemon'
 
+log "Waiting for nix-daemon to be ready"
+wait_for_nix_daemon() {
+  local inst="$1"
+  local attempts=30
+  for _ in $(seq 1 ${attempts}); do
+    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "nix store ping --store daemon 2>/dev/null"; then
+      return 0
+    fi
+    log "Waiting for nix-daemon on ${inst}..."
+    sleep 2
+  done
+  log "nix-daemon did not become ready for ${inst}"
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'systemctl status nix-daemon || true'
+  exit 1
+}
+
+wait_for_nix_daemon "${BUILDER}"
+
 log "Building nix-output-monitor binary path"
 NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "nix build ${NIX_FLAGS} --no-link --print-out-paths nixpkgs#nix-output-monitor" | tr -d '\r')"
 NOM_BIN="${NOM_OUT}/bin/nom"

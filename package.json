@@ -1,0 +1,17 @@
+{
+  "name": "nixos-builder-mon",
+  "version": "1.0.0",
+  "description": "NixOS build monitor web interface with real-time system metrics",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0"
+  },
+  "devDependencies": {},
+  "keywords": ["nixos", "monitoring", "build", "terminal"],
+  "author": "",
+  "license": "MIT"
+}

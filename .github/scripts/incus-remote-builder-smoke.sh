@@ -246,6 +246,14 @@ log "Testing DNS resolution for cache.nixos.org"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "getent hosts cache.nixos.org || echo 'DNS resolution failed'" || log "DNS resolution test failed"
 log "Testing DNS resolution for index.crates.io"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "getent hosts index.crates.io || echo 'DNS resolution failed'" || log "DNS resolution test failed"
+log "Testing HTTP access to index.crates.io"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'curl -s --max-time 10 https://index.crates.io/config.json | head -c 100' 2>&1 || log "HTTP access to crates.io failed"
+log "Configuring cargo to prefer IPv4"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "mkdir -p /root/.cargo && cat > /root/.cargo/config.toml <<'EOF'
+[net]
+git-fetch-with-cli = true
+EOF
+" || true
 for _ in $(seq 1 5); do
   if ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'curl -s --max-time 5 https://cache.nixos.org/nix-cache-info >/dev/null 2>&1'; then
     break

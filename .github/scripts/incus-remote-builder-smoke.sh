@@ -138,6 +138,8 @@ wait_for_agent() {
 wait_for_agent "${BUILDER}"
 wait_for_agent "${CLIENT}"
 
+NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config"
+
 get_ipv4() {
   local vm="$1"
   ${INCUS_BIN} list "${vm}" --format json | jq -r '.[0].state.network | to_entries[] | select(.key != "lo") | .value.addresses[] | select(.family == "inet") | .address' | sed -n '1p'
@@ -173,14 +175,14 @@ log "Ensuring nix-daemon is active"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'systemctl start nix-daemon'
 
 log "Building nix-output-monitor binary path"
-NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'nix build --accept-flake-config --no-link --print-out-paths nixpkgs#nix-output-monitor' | tr -d '\r')"
+NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'nix build ${NIX_FLAGS} --no-link --print-out-paths nixpkgs#nix-output-monitor' | tr -d '\r')"
 NOM_BIN="${NOM_OUT}/bin/nom"
 
 log "Building server package"
-SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'cd /root/nixos-builder-mon && nix build --accept-flake-config --no-link --print-out-paths .#server' | tr -d '\r')"
+SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'cd /root/nixos-builder-mon && nix build ${NIX_FLAGS} --no-link --print-out-paths .#server' | tr -d '\r')"
 
 log "Building web assets package"
-WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'cd /root/nixos-builder-mon && nix build --accept-flake-config --no-link --print-out-paths .#web' | tr -d '\r')"
+WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'cd /root/nixos-builder-mon && nix build ${NIX_FLAGS} --no-link --print-out-paths .#web' | tr -d '\r')"
 
 log "Starting daemon log forwarder (journalctl -> nom -> /var/log/nom-output.log)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | ${NOM_BIN} | tee -a /var/log/nom-output.log' >/var/log/nom-forwarder.log 2>&1 &"
@@ -226,7 +228,7 @@ EOF
 ${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${CLIENT}/root/remote-test/flake.nix"
 
 log "Triggering remote build from client -> builder"
-${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'; nix build /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
+${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'; nix build ${NIX_FLAGS} /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
 
 log "Waiting for forwarder to flush marker"
 sleep 6

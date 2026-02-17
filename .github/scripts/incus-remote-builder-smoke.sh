@@ -113,10 +113,10 @@ log "Using image: ${IMAGE}"
 LAUNCH_OPTS=(--vm)
 
 log "Launching builder VM"
-${INCUS_BIN} launch "${IMAGE}" "${BUILDER}" "${LAUNCH_OPTS[@]}" -c limits.cpu=4 -c limits.memory=8GiB
+${INCUS_BIN} launch "${IMAGE}" "${BUILDER}" "${LAUNCH_OPTS[@]}" -c limits.cpu=4 -c limits.memory=8GiB -c security.secureboot=false
 
 log "Launching client VM"
-${INCUS_BIN} launch "${IMAGE}" "${CLIENT}" "${LAUNCH_OPTS[@]}" -c limits.cpu=2 -c limits.memory=4GiB
+${INCUS_BIN} launch "${IMAGE}" "${CLIENT}" "${LAUNCH_OPTS[@]}" -c limits.cpu=2 -c limits.memory=4GiB -c security.secureboot=false
 
 log "Waiting for Incus agent in both VMs"
 wait_for_agent() {

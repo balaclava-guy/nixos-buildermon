@@ -2,13 +2,15 @@
 
 Single-binary monitor for NixOS builders. See what your nixos buiilders are building, by simply visiting their url.
 
-⚠️ build logs are exposed as-is via HTTP no auth or encryption - this is fine for my risk appetite on a local network with low-stakes packages, it may not be for yours!
 
 It provides:
 - live build output from `/var/log/nom-output.log` via SSE
 - sysinfo-only system metrics (CPU, RAM, swap, disks, network)
 - SSE fan-out with server-side cached snapshots
 - browser-tab aware update coordination to reduce duplicate refresh work
+
+> [!WARNING]
+>  Build logs are exposed as-is via HTTP -- no auth or encryption. This is fine for my risk appetite on a local network with low-stakes packages, it may not be for yours!
 
 ## Highlights
 

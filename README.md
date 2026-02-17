@@ -1,6 +1,8 @@
 <h1><img src="assets/logo.png" alt="NixOS Buildermon logo" width="34" style="vertical-align: middle; margin-right: 8px;" /> NixOS Buildermon</h1>
 
-Single-binary Dioxus 0.7 monitor for NixOS builders.
+Single-binary monitor for NixOS builders. See what your nixos buiilders are building, by simply visiting their url.
+
+⚠️ build logs are exposed as-is via HTTP no auth or encryption - this is fine for my risk appetite on a local network with low-stakes packages, it may not be for yours!
 
 It provides:
 - live build output from `/var/log/nom-output.log` via SSE
@@ -10,13 +12,11 @@ It provides:
 
 ## Highlights
 
-- Dioxus `0.7` fullstack app in one binary
+- Modern light/dark theme
 - Uses `sysinfo` exclusively for system metrics
 - Forwards nix-daemon logs through `nix-output-monitor` (`nom`)
 - Preserves ANSI output and renders it in the web terminal
-- Includes per-core and network sparklines
-- Nerd Font stack for glyph-heavy terminal output
-- Bundles JetBrainsMono Nerd Font (webfont) so the terminal works without a local Nerd Font; still prefers local Nerd Fonts when available
+- Includes per-core and network data
 
 ## Recommended Build Commands
 

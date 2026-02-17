@@ -179,7 +179,7 @@ wait_for_nix_daemon() {
   local inst="$1"
   local attempts=30
   for _ in $(seq 1 ${attempts}); do
-    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "test -S /nix/var/nix/daemon-socket/socket && nix version 2>/dev/null"; then
+    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "test -S /nix/var/nix/daemon-socket/socket && /nix/var/nix/profiles/default/bin/nix --version 2>/dev/null"; then
       return 0
     fi
     log "Waiting for nix-daemon on ${inst}..."
@@ -188,20 +188,21 @@ wait_for_nix_daemon() {
   log "nix-daemon did not become ready for ${inst}"
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'systemctl status nix-daemon || true'
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ls -la /nix/var/nix/daemon-socket/ 2>/dev/null || true'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'which nix || echo "nix not found"; ls -la /nix/var/nix/profiles/default/bin/ | head -20 || true' 2>/dev/null || true
   exit 1
 }
 
 wait_for_nix_daemon "${BUILDER}"
 
 log "Building nix-output-monitor binary path"
-NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "nix build ${NIX_FLAGS} --no-link --print-out-paths nixpkgs#nix-output-monitor" | tr -d '\r')"
+NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "/nix/var/nix/profiles/default/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths nixpkgs#nix-output-monitor" | tr -d '\r')"
 NOM_BIN="${NOM_OUT}/bin/nom"
 
 log "Building server package"
-SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && nix build ${NIX_FLAGS} --no-link --print-out-paths .#server" | tr -d '\r')"
+SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /nix/var/nix/profiles/default/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths .#server" | tr -d '\r')"
 
 log "Building web assets package"
-WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && nix build ${NIX_FLAGS} --no-link --print-out-paths .#web" | tr -d '\r')"
+WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /nix/var/nix/profiles/default/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths .#web" | tr -d '\r')"
 
 log "Starting daemon log forwarder (journalctl -> nom -> /var/log/nom-output.log)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | ${NOM_BIN} | tee -a /var/log/nom-output.log' >/var/log/nom-forwarder.log 2>&1 &"
@@ -247,7 +248,7 @@ EOF
 ${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${CLIENT}/root/remote-test/flake.nix"
 
 log "Triggering remote build from client -> builder"
-${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'; nix build ${NIX_FLAGS} /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
+${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'; /nix/var/nix/profiles/default/bin/nix build ${NIX_FLAGS} /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
 
 log "Waiting for forwarder to flush marker"
 sleep 6

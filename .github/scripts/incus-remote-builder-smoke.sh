@@ -79,7 +79,12 @@ fi
 
 # Configure the bridge to use host internet access
 ${INCUS_BIN} network set incusbr0 ipv4.nat true >/dev/null 2>&1 || true
+${INCUS_BIN} network set incusbr0 ipv4.firewall false >/dev/null 2>&1 || true
+${INCUS_BIN} network set incusbr0 ipv6.firewall false >/dev/null 2>&1 || true
 ${INCUS_BIN} network set incusbr0 dns.mode=dynamic >/dev/null 2>&1 || true
+
+# Enable IP forwarding on the host (required for NAT)
+sysctl net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
 if ! ${INCUS_BIN} profile device get default eth0 network >/dev/null 2>&1; then
   log "Adding bridged NIC to default profile"
@@ -144,16 +149,18 @@ wait_for_network() {
   local inst="$1"
   local attempts=30
   for _ in $(seq 1 ${attempts}); do
-    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "ip route get 1.1.1.1 >/dev/null 2>&1"; then
+    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "ip route get 1.1.1.1 >/dev/null 2>&1 && (ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 || curl -s --max-time 3 http://example.com >/dev/null 2>&1)"; then
       return 0
     fi
     log "Waiting for network on ${inst}..."
     sleep 2
   done
   log "Network not available for ${inst}"
-  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip addr show || true'
-  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip route show || true'
-  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ping -c 1 8.8.8.88 >/dev/null 2>&1 && echo "DNS reachable" || echo "DNS not reachable"'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip addr show 2>/dev/null || true'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip route show 2>/dev/null || true'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ping -c 1 -W 2 8.8.8.8 2>&1 || echo "Ping failed"'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'curl -s --max-time 3 https://cache.nixos.org/nix-cache-info 2>&1 || echo "Curl to cache failed"'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'nslookup cache.nixos.org 2>&1 || echo "DNS resolution failed"'
   exit 1
 }
 
@@ -165,7 +172,7 @@ for inst in "${BUILDER}" "${CLIENT}"; do
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "mkdir -p /etc/systemd/resolved.conf.d && printf '[Resolve]\nDNS=8.8.8.8 1.1.1.1\nFallbackDNS=9.9.9.9\n' > /etc/systemd/resolved.conf.d/dns.conf && systemctl restart systemd-resolved" || true
 done
 
-NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry '' --option connect-timeout 60 --option stalled-download-timeout 60"
+NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry '' --option connect-timeout 120 --option stalled-download-timeout 120 --max-jobs 2"
 
 get_ipv4() {
   local vm="$1"
@@ -200,6 +207,15 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/nixos-builder-mon 
 
 log "Ensuring nix-daemon is active"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'systemctl start nix-daemon'
+
+log "Verifying external connectivity from builder"
+for _ in $(seq 1 5); do
+  if ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'curl -s --max-time 5 https://cache.nixos.org/nix-cache-info >/dev/null 2>&1'; then
+    break
+  fi
+  log "Retrying external connectivity check..."
+  sleep 2
+done
 
 log "Waiting for nix-daemon to be ready"
 wait_for_nix_daemon() {

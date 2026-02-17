@@ -89,11 +89,17 @@ if [[ -z "${IMAGE}" ]]; then
 fi
 log "Using image: ${IMAGE}"
 
+# Use VMs only when the image variant is cloud; otherwise launch containers
+LAUNCH_OPTS=()
+if [[ "${IMAGE}" == *"/cloud"* ]]; then
+  LAUNCH_OPTS+=(--vm)
+fi
+
 log "Launching builder VM"
-${INCUS_BIN} launch "${IMAGE}" "${BUILDER}" --vm -c limits.cpu=4 -c limits.memory=8GiB
+${INCUS_BIN} launch "${IMAGE}" "${BUILDER}" "${LAUNCH_OPTS[@]}" -c limits.cpu=4 -c limits.memory=8GiB
 
 log "Launching client VM"
-${INCUS_BIN} launch "${IMAGE}" "${CLIENT}" --vm -c limits.cpu=2 -c limits.memory=4GiB
+${INCUS_BIN} launch "${IMAGE}" "${CLIENT}" "${LAUNCH_OPTS[@]}" -c limits.cpu=2 -c limits.memory=4GiB
 
 log "Waiting for Incus agent in both VMs"
 ${INCUS_BIN} wait "${BUILDER}" agent --timeout 300

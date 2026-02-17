@@ -68,9 +68,12 @@ ${INCUS_BIN} remote add images https://images.linuxcontainers.org --protocol=sim
 select_image() {
   local candidate
   for candidate in \
-    "images:nixos/unstable/cloud" \
-    "images:nixos/24.11/cloud" \
-    "images:nixos/24.05/cloud"; do
+    "images:nixos/unstable" \
+    "images:nixos/unstable/default" \
+    "images:nixos/25.11" \
+    "images:nixos/25.11/default" \
+    "images:nixos/24.11" \
+    "images:nixos/24.11/default"; do
     if ${INCUS_BIN} image info "${candidate}" >/dev/null 2>&1; then
       printf '%s\n' "${candidate}"
       return 0

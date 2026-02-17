@@ -194,14 +194,14 @@ wait_for_nix_daemon() {
 wait_for_nix_daemon "${BUILDER}"
 
 log "Building nix-output-monitor binary path"
-NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "/run/current-system/sw/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths nixpkgs#nix-output-monitor" | tr -d '\r')"
+NOM_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "/run/current-system/sw/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths --store / nixpkgs#nix-output-monitor" | tr -d '\r')"
 NOM_BIN="${NOM_OUT}/bin/nom"
 
 log "Building server package"
-SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths .#server" | tr -d '\r')"
+SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths --store / .#server" | tr -d '\r')"
 
 log "Building web assets package"
-WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths .#web" | tr -d '\r')"
+WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --no-link --print-out-paths --store / .#web" | tr -d '\r')"
 
 log "Starting daemon log forwarder (journalctl -> nom -> /var/log/nom-output.log)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | ${NOM_BIN} | tee -a /var/log/nom-output.log' >/var/log/nom-forwarder.log 2>&1 &"

@@ -179,7 +179,7 @@ wait_for_nix_daemon() {
   local inst="$1"
   local attempts=30
   for _ in $(seq 1 ${attempts}); do
-    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "nix store ping --store daemon 2>/dev/null"; then
+    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "test -S /nix/var/nix/daemon-socket/socket && nix version 2>/dev/null"; then
       return 0
     fi
     log "Waiting for nix-daemon on ${inst}..."
@@ -187,6 +187,7 @@ wait_for_nix_daemon() {
   done
   log "nix-daemon did not become ready for ${inst}"
   ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'systemctl status nix-daemon || true'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ls -la /nix/var/nix/daemon-socket/ 2>/dev/null || true'
   exit 1
 }
 

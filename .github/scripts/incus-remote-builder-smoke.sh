@@ -92,21 +92,23 @@ PRIMARY_IF=$(ip route show default | awk '/default/ {print $5}' | head -1)
 log "Primary outgoing interface: ${PRIMARY_IF}"
 if [[ -n "${PRIMARY_IF}" ]]; then
   # Add masquerade rule for all private ranges going through primary interface
-  iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
-  iptables -t nat -A POSTROUTING -s 172.16.0.0/12 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
-  iptables -t nat -A POSTROUTING -s 192.168.0.0/16 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  sudo iptables -t nat -A POSTROUTING -s 172.16.0.0/12 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
+  sudo iptables -t nat -A POSTROUTING -s 192.168.0.0/16 -o "${PRIMARY_IF}" -j MASQUERADE 2>/dev/null || true
   
   # Allow forwarding traffic both directions
-  iptables -A FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || true
-  iptables -A FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-  iptables -A FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || true
-  iptables -A FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || true
+  sudo iptables -A FORWARD -i incusbr0 -o "${PRIMARY_IF}" -j ACCEPT 2>/dev/null || true
+  sudo iptables -A FORWARD -i "${PRIMARY_IF}" -o incusbr0 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+  sudo iptables -A FORWARD -i incusbr0 -j ACCEPT 2>/dev/null || true
+  sudo iptables -A FORWARD -o incusbr0 -j ACCEPT 2>/dev/null || true
 fi
 
 log "Current iptables NAT rules (POSTROUTING):"
-iptables -t nat -L POSTROUTING -n -v 2>/dev/null || true
+sudo iptables -t nat -L POSTROUTING -n -v 2>/dev/null || true
 log "Current iptables filter rules (FORWARD):"
-iptables -L FORWARD -n -v 2>/dev/null || true
+sudo iptables -L FORWARD -n -v 2>/dev/null || true
+log "IP forwarding status:"
+sysctl net.ipv4.ip_forward 2>/dev/null || true
 
 if ! ${INCUS_BIN} profile device get default eth0 network >/dev/null 2>&1; then
   log "Adding bridged NIC to default profile"
@@ -231,6 +233,10 @@ log "Ensuring nix-daemon is active"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'systemctl start nix-daemon'
 
 log "Verifying external connectivity from builder"
+log "Testing ping to gateway from builder"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "ping -c 1 -W 2 10.74.46.1" 2>&1 || log "Ping to gateway failed"
+log "Testing ping to DNS from builder"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "ping -c 1 -W 2 8.8.8.8" 2>&1 || log "Ping to DNS failed"
 for _ in $(seq 1 5); do
   if ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'curl -s --max-time 5 https://cache.nixos.org/nix-cache-info >/dev/null 2>&1'; then
     break

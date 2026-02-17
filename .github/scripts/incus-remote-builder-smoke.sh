@@ -71,6 +71,17 @@ if ! ${INCUS_BIN} profile device get default root pool >/dev/null 2>&1; then
   ${INCUS_BIN} profile device add default root disk path=/ pool=default >/dev/null
 fi
 
+# Ensure a basic bridge network and attach it to the default profile
+if ! ${INCUS_BIN} network show incusbr0 >/dev/null 2>&1; then
+  log "Creating default bridge network incusbr0"
+  ${INCUS_BIN} network create incusbr0 >/dev/null
+fi
+
+if ! ${INCUS_BIN} profile device get default eth0 network >/dev/null 2>&1; then
+  log "Adding bridged NIC to default profile"
+  ${INCUS_BIN} profile device add default eth0 nic network=incusbr0 >/dev/null
+fi
+
 # Always ensure the images remote matches what we expect
 ${INCUS_BIN} remote remove --force images >/dev/null 2>&1 || ${INCUS_BIN} remote remove images >/dev/null 2>&1 || true
 log "Adding images remote"
@@ -111,8 +122,21 @@ log "Launching client VM"
 ${INCUS_BIN} launch "${IMAGE}" "${CLIENT}" "${LAUNCH_OPTS[@]}" -c limits.cpu=2 -c limits.memory=4GiB
 
 log "Waiting for Incus agent in both VMs"
-${INCUS_BIN} wait "${BUILDER}" agent --timeout 300
-${INCUS_BIN} wait "${CLIENT}" agent --timeout 300
+wait_for_agent() {
+  local inst="$1"
+  local attempts=60
+  for _ in $(seq 1 ${attempts}); do
+    if ${INCUS_BIN} exec "${inst}" -- true >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 5
+  done
+  log "Incus agent did not become ready for ${inst}"
+  exit 1
+}
+
+wait_for_agent "${BUILDER}"
+wait_for_agent "${CLIENT}"
 
 get_ipv4() {
   local vm="$1"

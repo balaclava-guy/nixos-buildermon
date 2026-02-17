@@ -193,7 +193,12 @@ wait_for_network "${CLIENT}"
 
 log "Configuring DNS for VMs"
 for inst in "${BUILDER}" "${CLIENT}"; do
-  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "mkdir -p /etc/systemd/resolved.conf.d && printf '[Resolve]\nDNS=8.8.8.8 1.1.1.1\nFallbackDNS=9.9.9.9\n' > /etc/systemd/resolved.conf.d/dns.conf && systemctl restart systemd-resolved" || true
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "cat > /etc/resolv.conf <<'EOF'
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+nameserver 9.9.9.9
+EOF
+chattr +i /etc/resolv.conf 2>/dev/null || true" || true
 done
 
 NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry '' --option connect-timeout 120 --option stalled-download-timeout 120 --max-jobs 2"
@@ -237,6 +242,10 @@ log "Testing ping to gateway from builder"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "ping -c 1 -W 2 10.74.46.1" 2>&1 || log "Ping to gateway failed"
 log "Testing ping to DNS from builder"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "ping -c 1 -W 2 8.8.8.8" 2>&1 || log "Ping to DNS failed"
+log "Testing DNS resolution for cache.nixos.org"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "getent hosts cache.nixos.org || echo 'DNS resolution failed'" || log "DNS resolution test failed"
+log "Testing DNS resolution for index.crates.io"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "getent hosts index.crates.io || echo 'DNS resolution failed'" || log "DNS resolution test failed"
 for _ in $(seq 1 5); do
   if ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'curl -s --max-time 5 https://cache.nixos.org/nix-cache-info >/dev/null 2>&1'; then
     break

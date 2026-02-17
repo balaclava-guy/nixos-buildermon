@@ -109,11 +109,8 @@ if [[ -z "${IMAGE}" ]]; then
 fi
 log "Using image: ${IMAGE}"
 
-# Use VMs only when the image variant is cloud; otherwise launch containers
-LAUNCH_OPTS=()
-if [[ "${IMAGE}" == *"/cloud"* ]]; then
-  LAUNCH_OPTS+=(--vm)
-fi
+# Force VM launch to ensure proper isolation and write access to /nix/store
+LAUNCH_OPTS=(--vm)
 
 log "Launching builder VM"
 ${INCUS_BIN} launch "${IMAGE}" "${BUILDER}" "${LAUNCH_OPTS[@]}" -c limits.cpu=4 -c limits.memory=8GiB

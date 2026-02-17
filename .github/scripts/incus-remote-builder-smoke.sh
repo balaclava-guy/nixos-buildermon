@@ -138,7 +138,7 @@ wait_for_agent() {
 wait_for_agent "${BUILDER}"
 wait_for_agent "${CLIENT}"
 
-NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry \"\""
+NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry ''"
 
 get_ipv4() {
   local vm="$1"

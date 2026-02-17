@@ -77,6 +77,10 @@ if ! ${INCUS_BIN} network show incusbr0 >/dev/null 2>&1; then
   ${INCUS_BIN} network create incusbr0 >/dev/null
 fi
 
+# Configure the bridge to use host internet access
+${INCUS_BIN} network set incusbr0 ipv4.nat true >/dev/null 2>&1 || true
+${INCUS_BIN} network set incusbr0 dns.mode=dynamic >/dev/null 2>&1 || true
+
 if ! ${INCUS_BIN} profile device get default eth0 network >/dev/null 2>&1; then
   log "Adding bridged NIC to default profile"
   ${INCUS_BIN} profile device add default eth0 nic network=incusbr0 >/dev/null
@@ -135,7 +139,33 @@ wait_for_agent() {
 wait_for_agent "${BUILDER}"
 wait_for_agent "${CLIENT}"
 
-NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry ''"
+log "Waiting for network connectivity in both VMs"
+wait_for_network() {
+  local inst="$1"
+  local attempts=30
+  for _ in $(seq 1 ${attempts}); do
+    if ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "ip route get 1.1.1.1 >/dev/null 2>&1"; then
+      return 0
+    fi
+    log "Waiting for network on ${inst}..."
+    sleep 2
+  done
+  log "Network not available for ${inst}"
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip addr show || true'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ip route show || true'
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc 'ping -c 1 8.8.8.88 >/dev/null 2>&1 && echo "DNS reachable" || echo "DNS not reachable"'
+  exit 1
+}
+
+wait_for_network "${BUILDER}"
+wait_for_network "${CLIENT}"
+
+log "Configuring DNS for VMs"
+for inst in "${BUILDER}" "${CLIENT}"; do
+  ${INCUS_BIN} exec "${inst}" -- /bin/sh -lc "mkdir -p /etc/systemd/resolved.conf.d && printf '[Resolve]\nDNS=8.8.8.8 1.1.1.1\nFallbackDNS=9.9.9.9\n' > /etc/systemd/resolved.conf.d/dns.conf && systemctl restart systemd-resolved" || true
+done
+
+NIX_FLAGS="--extra-experimental-features flakes --extra-experimental-features nix-command --accept-flake-config --option flake-registry '' --option connect-timeout 60 --option stalled-download-timeout 60"
 
 get_ipv4() {
   local vm="$1"

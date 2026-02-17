@@ -1,14 +1,49 @@
 [package]
-name = "nom-server"
-version = "0.1.0"
+name = "nixos-builder-mon"
+version = "1.0.0"
 edition = "2021"
 
 [[bin]]
-name = "nom-server"
-path = "server-src/main.rs"
+name = "nixos-builder-mon"
+path = "src/main.rs"
 
 [dependencies]
-sysinfo = "0.31"
+# Core
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+futures-util = "0.3"
+
+# Dioxus Fullstack
+dioxus = { version = "0.7", features = ["fullstack"] }
+dioxus-server = { version = "0.7", optional = true }
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+# Server-side
+ansi-to-html = { version = "0.2", optional = true }
+sysinfo = { version = "0.31", features = ["system", "disk", "network"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+async-stream = { version = "0.3", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-net = { version = "0.6", features = ["eventsource"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Document", "Storage", "Window"] }
+
+[features]
+default = ["server"]
+server = [
+    "dioxus/server",
+    "dep:dioxus-server",
+    "dep:ansi-to-html",
+    "dep:sysinfo",
+    "dep:tokio",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "dep:async-stream",
+]
+web = ["dioxus/web"]
 
 [profile.release]
 opt-level = "z"     # Optimize for size

@@ -1,34 +1,53 @@
 # NixOS Builder Monitor
 
-A real-time web interface for monitoring NixOS build activity with system metrics.
+Single-binary Dioxus 0.7 monitor for NixOS builders.
 
-## Features
+It provides:
+- live build output from `/var/log/nom-output.log` via SSE
+- sysinfo-only system metrics (CPU, RAM, swap, disks, network)
+- SSE fan-out with server-side cached snapshots
+- browser-tab aware update coordination to reduce duplicate refresh work
 
-- **Live Build Output**: Streams nix-daemon journal output in real-time
-- **System Metrics**: CPU, memory, disk, network monitoring with sparkline graphs
-- **Lightweight**: Minimal resource usage with Rust backend
-- **Dark/Light Mode**: Toggle between themes
-- **Collapsible Widgets**: Expand/collapse system information
-- **Zero External Dependencies**: All assets bundled locally
+## Highlights
 
-## Quick Start
+- Dioxus `0.7` fullstack app in one binary
+- Uses `sysinfo` exclusively for system metrics
+- Forwards nix-daemon logs through `nix-output-monitor` (`nom`)
+- Preserves ANSI output and renders it in the web terminal
+- Includes per-core and network sparklines
+- Nerd Font stack for glyph-heavy terminal output
+- Bundles JetBrainsMono Nerd Font (webfont) so the terminal works without a local Nerd Font; still prefers local Nerd Fonts when available
 
-### Option 1: Use the NixOS Module (Recommended)
+## Recommended Build Commands
 
-Add to your `flake.nix`:
+For best NOM detail, run builds through `nom` directly:
+
+```bash
+nom build .#your-target
+```
+
+This follows the NOM "easy way" (`nom build`) and keeps NOM as the primary parser/output layer.
+
+If you need a manual JSON pipeline, use:
+
+```bash
+nix build .#your-target --log-format internal-json -v |& nom --json
+```
+
+## NixOS Integration
+
+In your system flake:
 
 ```nix
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixos-builder-mon = {
-      url = "github:yourusername/nixos-builder-mon";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    nixos-builder-mon.url = "github:balaclava-guy/nixos-builder-mon";
+    nixos-builder-mon.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, nixos-builder-mon }: {
-    nixosConfigurations.your-host = nixpkgs.lib.nixosSystem {
+  outputs = { self, nixpkgs, nixos-builder-mon, ... }: {
+    nixosConfigurations.builder = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
         nixos-builder-mon.nixosModules.default
@@ -45,100 +64,35 @@ Add to your `flake.nix`:
 }
 ```
 
-### Option 2: Manual Import in configuration.nix
-
-If using a local path:
-
-```nix
-{ pkgs, ... }:
-{
-  imports = [
-    /path/to/nixos-builder-mon/flake.nix
-  ];
-
-  services.nixos-builder-mon = {
-    enable = true;
-    port = 80;
-    openFirewall = true;
-  };
-}
-```
+The module configures:
+- `nixos-builder-mon` service (web UI)
+- `nixos-builder-mon-daemon` service (`journalctl nix-daemon | nom | tee /var/log/nom-output.log`)
+- Nerd fonts (`JetBrains Mono Nerd Font`, `Iosevka Nerd Font`)
+- `nix-output-monitor` package on system
 
 ## Development
 
-### Prerequisites
-
-- Node.js 18+ and pnpm
-- Rust 1.70+
-
-### Build
+Because this environment may have linker quirks, use `nix develop`:
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Build web assets
-pnpm build
-
-# Build Rust server
-cargo build --release
-```
-
-### Test Locally
-
-```bash
-# Build
-pnpm build
-
-# Run server
-DEMO_MODE=true cargo run
-
-# Open http://localhost:8080
+nix develop -c cargo check --features server
+nix develop -c cargo check --features web --target wasm32-unknown-unknown
 ```
 
 ## Architecture
 
-```
-nixos-builder-mon/
-├── src/
-│   └── index.html          # Main web interface
-├── server-src/
-│   └── main.rs             # Rust HTTP server
-├── public/
-│   └── logo.png            # Assets
-├── dist/                   # Build output
-│   ├── index.html
-│   └── assets/
-│       ├── xterm.js
-│       ├── xterm.css
-│       └── logo.png
-├── flake.nix              # Nix flake with NixOS module
-├── package.json           # Node dependencies
-└── Cargo.toml            # Rust dependencies
-```
+- `src/main.rs`: Dioxus app, server functions, and server-side metrics collector
+- `assets/style.css`: UI styles, terminal/Nerd Font stack, responsive layout
+- `flake.nix`: package + NixOS module wiring
 
-## Configuration Options
+## Notes on Resource Use
 
-### `services.nixos-builder-mon.enable`
-- **Type**: boolean
-- **Default**: `false`
-- **Description**: Enable the NixOS build monitor service
-
-### `services.nixos-builder-mon.port`
-- **Type**: port (integer)
-- **Default**: `80`
-- **Description**: Port for the web interface
-
-### `services.nixos-builder-mon.openFirewall`
-- **Type**: boolean
-- **Default**: `true`
-- **Description**: Automatically open firewall port
-
-## Credits
-
-- Build output monitoring powered by [nix-output-monitor](https://github.com/maralorn/nix-output-monitor)
-- Terminal emulation via [xterm.js](https://github.com/xtermjs/xterm.js)
-- System metrics via [sysinfo](https://github.com/GuillaumeGomez/sysinfo)
+- metrics are collected in a single shared background task
+- server exposes SSE streams for metrics and build logs
+- background/hidden tabs pause active stream ownership; a visible tab renews ownership
+- server functions still return cached snapshots for fallback reads
+- CPU refresh follows sysinfo delta semantics (`MINIMUM_CPU_UPDATE_INTERVAL` warmup)
+- disk list refresh is throttled
 
 ## License
 

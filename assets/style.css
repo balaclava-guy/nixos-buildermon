@@ -1,0 +1,583 @@
+:root {
+  --bg-primary: #f6f8fa;
+  --bg-terminal: #f6f8fa;
+  --text-primary: #24292f;
+  --text-secondary: #57606a;
+  --text-tertiary: #8c959f;
+  --border-color: #d0d7de;
+  --header-bg: #ffffff;
+  --metric-bg: #ffffff;
+  --bar-bg: #e1e4e8;
+  --bar-fill: #24292f;
+  --bar-separator: rgba(36, 41, 47, 0.12);
+  --bar-segment: rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #0d1117;
+    --bg-terminal: #0d1117;
+    --text-primary: #c9d1d9;
+    --text-secondary: #8b949e;
+    --text-tertiary: #6e7681;
+    --border-color: #30363d;
+    --header-bg: #161b22;
+    --metric-bg: #161b22;
+    --bar-bg: #21262d;
+    --bar-fill: #c9d1d9;
+    --bar-separator: rgba(201, 209, 217, 0.12);
+    --bar-segment: rgba(255, 255, 255, 0.3);
+  }
+}
+
+@font-face {
+  font-family: "JetBrainsMono Nerd Font";
+  src: url("/assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2"),
+    local("JetBrainsMono Nerd Font"),
+    local("JetBrainsMonoNerdFont-Regular"),
+    local("JetBrainsMonoNerdFontMono-Regular");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Iosevka Nerd Font";
+  src: local("Iosevka Nerd Font"), local("IosevkaNerdFont-Regular");
+  font-display: swap;
+}
+
+.app-shell.light-mode {
+  --bg-primary: #f6f8fa;
+  --bg-terminal: #f6f8fa;
+  --text-primary: #24292f;
+  --text-secondary: #57606a;
+  --text-tertiary: #8c959f;
+  --border-color: #d0d7de;
+  --header-bg: #ffffff;
+  --metric-bg: #ffffff;
+  --bar-bg: #e1e4e8;
+  --bar-fill: #24292f;
+  --bar-separator: rgba(36, 41, 47, 0.12);
+  --bar-segment: rgba(0, 0, 0, 0.5);
+}
+
+.app-shell.dark-mode {
+  --bg-primary: #0d1117;
+  --bg-terminal: #0d1117;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --text-tertiary: #6e7681;
+  --border-color: #30363d;
+  --header-bg: #161b22;
+  --metric-bg: #161b22;
+  --bar-bg: #21262d;
+  --bar-fill: #c9d1d9;
+  --bar-separator: rgba(201, 209, 217, 0.12);
+  --bar-segment: rgba(255, 255, 255, 0.3);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  transition: background-color 0.2s, color 0.2s;
+  overflow-x: hidden;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  transition: background-color 0.2s, color 0.2s;
+  overflow-x: hidden;
+}
+
+.header {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border-color);
+  padding: 16px 24px;
+  display: grid;
+  grid-template-columns: minmax(240px, max-content) minmax(0, 1fr) auto;
+  grid-template-areas: "brand metrics controls";
+  align-items: start;
+  column-gap: 14px;
+  row-gap: 8px;
+}
+
+.header-left {
+  grid-area: brand;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  min-width: 0;
+}
+
+.header-title-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 44px;
+}
+
+.logo {
+  width: 32px;
+  height: 32px;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.title-section {
+  user-select: none;
+}
+
+.info {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-indicator.connected {
+  background: #2da44e;
+}
+
+.status-indicator.disconnected {
+  background: var(--text-tertiary);
+}
+
+.header-details {
+  display: none;
+  margin-top: 6px;
+  transition: none;
+}
+
+.header-details.expanded {
+  display: block;
+}
+
+.detail-row {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  font-family: "JetBrainsMono Nerd Font", "Iosevka Nerd Font", "SF Mono", monospace;
+}
+
+.detail-row:first-child {
+  margin-top: 0;
+}
+
+.metrics-grid {
+  grid-area: metrics;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 980px;
+  min-width: 0;
+}
+
+.metric {
+  background: var(--metric-bg);
+  border: 1px solid var(--border-color);
+  padding: 8px 10px;
+  font-family: "JetBrainsMono Nerd Font", "Iosevka Nerd Font", "SF Mono", monospace;
+  font-size: 11px;
+  min-width: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.metric:hover {
+  background: var(--bar-bg);
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.metric-label {
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 9px;
+}
+
+.metric-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric-details {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.metric-details.expanded {
+  max-height: 600px;
+}
+
+.detail-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--bar-segment);
+}
+
+.detail-label {
+  color: var(--text-tertiary);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.cpu-cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+}
+
+.cpu-core {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.core-label {
+  color: var(--text-tertiary);
+  font-size: 8px;
+}
+
+.core-graph {
+  min-height: 12px;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+}
+
+.core-value {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.network-graphs-mini {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.net-graph-mini {
+  min-height: 10px;
+  font-size: 10px;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  color: var(--text-secondary);
+}
+
+.network-graphs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.net-graph-label {
+  color: var(--text-tertiary);
+  font-size: 8px;
+  margin-bottom: 2px;
+}
+
+.net-graph-viz {
+  font-size: 10px;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  min-height: 12px;
+}
+
+.net-graph-value {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.network-totals {
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+}
+
+.btop-bar {
+  position: relative;
+  height: 8px;
+  background: var(--bar-bg);
+  overflow: hidden;
+  margin-top: 4px;
+  border-radius: 3px;
+}
+
+.btop-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 8px,
+    var(--bar-separator) 8px 9px
+  );
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.btop-bar-fill {
+  height: 100%;
+  background: var(--bar-fill);
+  transition: width 0.2s ease;
+}
+
+.sub-metric {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--bar-segment);
+  font-size: 10px;
+}
+
+.sub-metric-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+
+.sub-metric-label {
+  color: var(--text-tertiary);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.header-right {
+  grid-area: controls;
+  justify-self: end;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 44px;
+}
+
+.theme-toggle,
+.help-toggle {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.help-toggle {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.theme-toggle:hover,
+.help-toggle:hover {
+  background: var(--bar-bg);
+}
+
+.theme-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-color);
+  display: inline-block;
+}
+
+.theme-icon.dark {
+  background: var(--text-primary);
+}
+
+.theme-icon.light {
+  background: transparent;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal.show {
+  display: flex;
+}
+
+.modal-content {
+  background: var(--header-bg);
+  border: 1px solid var(--border-color);
+  max-width: 640px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 16px;
+  line-height: 1.6;
+}
+
+.modal-body h3 {
+  font-size: 16px;
+  margin-bottom: 8px;
+  margin-top: 14px;
+}
+
+.modal-body ul {
+  margin-left: 18px;
+}
+
+.modal-body a {
+  color: var(--text-primary);
+}
+
+.terminal-container {
+  margin: 24px;
+  background: var(--bg-terminal);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-color);
+  font-family: "JetBrainsMono Nerd Font", "Iosevka Nerd Font", "SF Mono", monospace;
+  font-size: 11px;
+}
+
+.terminal-title {
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.terminal-status.connected {
+  color: #2da44e;
+}
+
+.terminal-status.disconnected {
+  color: var(--text-tertiary);
+}
+
+.terminal {
+  padding: 14px;
+  max-height: 620px;
+  overflow-y: auto;
+  font-family: "JetBrainsMono Nerd Font", "Iosevka Nerd Font", "SFMono Nerd Font", "SF Mono", "Fira Code", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.terminal-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-line.muted {
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 1100px) {
+  .header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand controls"
+      "metrics metrics";
+    align-items: start;
+  }
+
+  .metrics-grid {
+    max-width: 100%;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    padding: 14px;
+  }
+
+  .metrics-grid {
+    gap: 8px;
+    min-width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .header-right {
+    justify-content: flex-start;
+  }
+
+  .terminal-container {
+    margin: 14px;
+  }
+}

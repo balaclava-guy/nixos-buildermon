@@ -60,7 +60,9 @@ if ! ${INCUS_BIN} info >/dev/null 2>&1; then
   ${INCUS_BIN} admin init --auto
 fi
 
-if ! ${INCUS_BIN} remote list --format json | jq -e '.[] | select((.name // .Name) == "images")' >/dev/null 2>&1; then
+if ${INCUS_BIN} remote show images >/dev/null 2>&1; then
+  log "Images remote already present; reusing"
+else
   log "Adding images remote"
   ${INCUS_BIN} remote add images https://images.linuxcontainers.org --protocol=simplestreams --public
 fi

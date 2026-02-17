@@ -2184,8 +2184,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nixos-builder-mon"
-version = "1.0.0"
+name = "nixos-buildermon"
+version = "0.1.0"
 dependencies = [
  "ansi-to-html",
  "async-stream",

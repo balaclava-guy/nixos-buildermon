@@ -1,7 +1,7 @@
 {
-  "name": "nixos-builder-mon",
-  "version": "1.0.0",
-  "description": "NixOS build monitor web interface with real-time system metrics",
+  "name": "nixos-buildermon",
+  "version": "0.1.0",
+  "description": "NixOS Buildermon web interface with real-time system metrics",
   "type": "module",
   "scripts": {
     "build": "node build.js",

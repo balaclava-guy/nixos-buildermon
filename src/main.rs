@@ -15,6 +15,7 @@ const TAB_SYNC_MS: u32 = 1_200;
 const LEADER_HEARTBEAT_MS: u32 = 2_000;
 #[cfg(target_arch = "wasm32")]
 const LEADER_STALE_MS: u64 = 7_000;
+const BUILD_ACTIVE_WINDOW_SECS: u64 = 20;
 const MAX_LOG_LINES: usize = 600;
 const MAX_CPU_SPARK_POINTS: usize = 32;
 
@@ -211,6 +212,7 @@ fn App() -> Element {
         "theme-icon dark"
     };
     let page_title = build_page_title(&current_metrics);
+    let app_version = env!("CARGO_PKG_VERSION");
     let header_details_class = if all_expanded() {
         "header-details expanded"
     } else {
@@ -238,7 +240,7 @@ fn App() -> Element {
                     img { src: asset!("/assets/logo.png"), class: "logo", alt: "NixOS" }
                     div { class: "header-title-wrap",
                         div { class: "title-section",
-                            h1 { "NixOS Build Monitor" }
+                            h1 { "NixOS Buildermon" }
                             div { class: "info",
                                 if current_metrics.is_some() {
                                     span { class: "status-indicator connected" }
@@ -315,11 +317,15 @@ fn App() -> Element {
                         class: "modal-content",
                         onclick: move |event| event.stop_propagation(),
                         div { class: "modal-header",
-                            h2 { "NixOS Build Monitor" }
+                            div { class: "modal-brand",
+                                img { src: asset!("/assets/logo.png"), class: "modal-logo", alt: "NixOS" }
+                                h2 { "NixOS Buildermon" }
+                            }
                             button { class: "modal-close", onclick: move |_| show_help.set(false), "x" }
                         }
                         div { class: "modal-body",
                             h3 { "About" }
+                            p { "Version {app_version}" }
                             p {
                                 "Real-time monitoring dashboard for NixOS builder activity. "
                                 "System metrics come from sysinfo, and build output is designed to follow nix-output-monitor guidance."
@@ -430,7 +436,7 @@ fn MemoryMetric(
             }
             if expanded {
                 div { class: "metric-details expanded",
-                    div { class: "sub-metric",
+                    div { class: "detail-item sub-metric",
                         div { class: "sub-metric-row",
                             span { class: "sub-metric-label", "SWAP" }
                             if metrics.swap_total_gb > 0.0 {
@@ -481,7 +487,7 @@ fn DiskMetric(
                             {
                                 let disk_width = format!("width: {}%", disk.percent.clamp(0.0, 100.0));
                                 rsx! {
-                                    div { class: "sub-metric", key: "{disk.mount}",
+                                    div { class: "detail-item sub-metric", key: "{disk.mount}",
                                         div { class: "sub-metric-row",
                                             span { class: "sub-metric-label", "{disk.mount}" }
                                             span { "{disk.used_gb:.0}G / {disk.total_gb:.0}G" }
@@ -675,11 +681,12 @@ fn Terminal(
     } else {
         ("terminal-status disconnected", "waiting")
     };
+    let terminal_title = build_log_title(lines.as_slice(), *last_build_epoch.read());
 
     rsx! {
         div { class: "terminal-container",
             div { class: "terminal-header",
-                span { class: "terminal-title", "nix-output-monitor stream" }
+                span { class: "terminal-title", "{terminal_title}" }
                 span { class: "{terminal_status.0}", "{terminal_status.1}" }
             }
 
@@ -1073,6 +1080,108 @@ fn format_scaled_value(value: f64) -> String {
     } else {
         format!("{value:.2}")
     }
+}
+
+fn build_log_title(lines: &[LogLine], last_build_epoch: Option<u64>) -> String {
+    let is_build_active = last_build_epoch
+        .map(|epoch| epoch_now().saturating_sub(epoch) <= BUILD_ACTIVE_WINDOW_SECS)
+        .unwrap_or(false);
+
+    if !is_build_active {
+        return "build log".to_string();
+    }
+
+    if let Some(target) = infer_build_target(lines) {
+        return format!("build log: {target}");
+    }
+
+    "build log".to_string()
+}
+
+fn infer_build_target(lines: &[LogLine]) -> Option<String> {
+    for line in lines.iter().rev() {
+        let raw = line.raw.trim();
+        if raw.is_empty() {
+            continue;
+        }
+
+        if let Some(path) = extract_nix_store_path(raw) {
+            if let Some(label) = build_target_from_store_path(path) {
+                return Some(label);
+            }
+        }
+
+        if let Some(label) = extract_nix_command(raw) {
+            return Some(label);
+        }
+    }
+
+    None
+}
+
+fn extract_nix_store_path(line: &str) -> Option<&str> {
+    let start = line.find("/nix/store/")?;
+    let candidate = &line[start..];
+    let end = candidate
+        .find(|ch: char| {
+            ch.is_whitespace()
+                || matches!(
+                    ch,
+                    '\'' | '"' | ',' | ';' | ')' | '(' | '[' | ']' | '{' | '}' | '<' | '>'
+                )
+        })
+        .unwrap_or(candidate.len());
+    let token = candidate[..end].trim_end_matches(['.', ':']);
+    if token.len() <= "/nix/store/".len() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
+fn build_target_from_store_path(path: &str) -> Option<String> {
+    let basename = path.rsplit('/').next()?;
+    let without_suffix = basename
+        .strip_suffix(".drv")
+        .or_else(|| basename.strip_suffix(".drv.chroot"))
+        .unwrap_or(basename);
+    let label = without_suffix
+        .split_once('-')
+        .map(|(_, right)| right)
+        .unwrap_or(without_suffix)
+        .trim();
+
+    if label.is_empty() {
+        return None;
+    }
+
+    Some(trim_label(label, 56))
+}
+
+fn extract_nix_command(line: &str) -> Option<String> {
+    let command = ["nix build", "nix-build", "nix shell", "nix develop"]
+        .iter()
+        .find_map(|needle| line.find(needle).map(|index| &line[index..]))?
+        .trim();
+
+    if command.is_empty() {
+        return None;
+    }
+
+    Some(trim_label(command, 56))
+}
+
+fn trim_label(input: &str, max_len: usize) -> String {
+    if input.chars().count() <= max_len {
+        return input.to_string();
+    }
+
+    let mut clipped = String::with_capacity(max_len + 3);
+    for ch in input.chars().take(max_len) {
+        clipped.push(ch);
+    }
+    clipped.push_str("...");
+    clipped
 }
 
 fn sparkline_f32(values: &[f32], max: f32) -> String {

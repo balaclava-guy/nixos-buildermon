@@ -1,10 +1,10 @@
 [package]
-name = "nixos-builder-mon"
-version = "1.0.0"
+name = "nixos-buildermon"
+version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "nixos-builder-mon"
+name = "nixos-buildermon"
 path = "src/main.rs"
 
 [dependencies]
@@ -32,7 +32,7 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Document", "Storage", "Window"] }
 
 [features]
-default = ["server"]
+default = ["server", "web"]
 server = [
     "dioxus/server",
     "dep:dioxus-server",

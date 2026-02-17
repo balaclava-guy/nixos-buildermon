@@ -1,4 +1,4 @@
-# NixOS Builder Monitor
+<h1><img src="assets/logo.png" alt="NixOS Buildermon logo" width="34" style="vertical-align: middle; margin-right: 8px;" /> NixOS Buildermon</h1>
 
 Single-binary Dioxus 0.7 monitor for NixOS builders.
 
@@ -36,25 +36,26 @@ nix build .#your-target --log-format internal-json -v |& nom --json
 
 ## NixOS Integration
 
-In your system flake:
+In your system flake (Git input example):
 
 ```nix
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixos-builder-mon.url = "github:balaclava-guy/nixos-builder-mon";
-    nixos-builder-mon.inputs.nixpkgs.follows = "nixpkgs";
+    nixos-buildermon.url = "github:balaclava-guy/nixos-buildermon";
+    nixos-buildermon.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, nixos-builder-mon, ... }: {
+  outputs = { self, nixpkgs, nixos-buildermon, ... }: {
     nixosConfigurations.builder = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        nixos-builder-mon.nixosModules.default
+        ./configuration.nix
+        nixos-buildermon.nixosModules.default
         {
-          services.nixos-builder-mon = {
+          services.nixos-buildermon = {
             enable = true;
-            port = 80;
+            port = 8091;
             openFirewall = true;
           };
         }
@@ -64,19 +65,43 @@ In your system flake:
 }
 ```
 
+Then apply it:
+
+```bash
+sudo nixos-rebuild switch --flake .#builder
+```
+
 The module configures:
-- `nixos-builder-mon` service (web UI)
-- `nixos-builder-mon-daemon` service (`journalctl nix-daemon | nom | tee /var/log/nom-output.log`)
+- `nixos-buildermon` service (web UI)
+- `nixos-buildermon-daemon` service (`journalctl nix-daemon | nom | tee /var/log/nom-output.log`)
 - Nerd fonts (`JetBrains Mono Nerd Font`, `Iosevka Nerd Font`)
 - `nix-output-monitor` package on system
 
-## Development
-
-Because this environment may have linker quirks, use `nix develop`:
+Useful checks:
 
 ```bash
+systemctl status nixos-buildermon
+systemctl status nixos-buildermon-daemon
+journalctl -u nixos-buildermon -f
+journalctl -u nixos-buildermon-daemon -f
+```
+
+## Development
+
+Use Dioxus commands through Nix:
+
+```bash
+nix run .#dx-serve -- --port 8091
+nix run .#dx-build
+```
+
+Or from the dev shell:
+
+```bash
+nix develop -c dx serve --port 8091
+nix develop -c dx build --platform web --release --fullstack true --features web
 nix develop -c cargo check --features server
-nix develop -c cargo check --features web --target wasm32-unknown-unknown
+nix develop -c cargo check --no-default-features --features web --target wasm32-unknown-unknown
 ```
 
 ## Architecture

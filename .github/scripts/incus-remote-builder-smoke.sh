@@ -319,20 +319,19 @@ ${INCUS_BIN} file push "${WORKDIR}/client_id_ed25519.pub" "${BUILDER}/root/clien
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && cat /root/client_id_ed25519.pub >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
 
 log "Writing marker flake on client"
+# Use builtins.derivation with no inputs so we never fetch nixpkgs from
+# GitHub (that tarball is huge and reliably hangs inside the VM).
+# Nix provides /bin/sh in the build sandbox automatically.
 cat > "${WORKDIR}/remote-test-flake.nix" <<EOF
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-  outputs = { self, nixpkgs }:
-    let
-      pkgs = nixpkgs.legacyPackages.x86_64-linux;
-    in {
-      packages.x86_64-linux.marker = pkgs.runCommand "incus-marker" {} ''
-        echo "${MARKER}" >&2
-        mkdir -p \$out
-        echo ok > \$out/result
-      '';
+  outputs = { self }: {
+    packages.x86_64-linux.marker = builtins.derivation {
+      name = "incus-marker";
+      system = "x86_64-linux";
+      builder = "/bin/sh";
+      args = [ "-c" "echo '${MARKER}' >&2; mkdir \$out; echo ok > \$out/result" ];
     };
+  };
 }
 EOF
 

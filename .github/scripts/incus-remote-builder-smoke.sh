@@ -14,7 +14,7 @@ MARKER="INCUS_REMOTE_BUILD_MARKER_${RUN_TOKEN}"
 mkdir -p "${ARTIFACT_DIR}"
 
 log() {
-  printf '[incus-smoke] %s\n' "$*"
+  printf '[incus-smoke] [%s] %s\n' "$(date -u +%H:%M:%S)" "$*"
 }
 
 cleanup() {
@@ -28,6 +28,9 @@ cleanup() {
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nom-output.log" "${ARTIFACT_DIR}/builder-nom-output.log" >/dev/null 2>&1 || true
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nom-forwarder.log" "${ARTIFACT_DIR}/builder-nom-forwarder.log" >/dev/null 2>&1 || true
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nixos-builder-mon.log" "${ARTIFACT_DIR}/builder-monitor.log" >/dev/null 2>&1 || true
+    # Also capture systemd journal for our transient units (if systemd-run was used)
+    ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nom-forwarder --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-nom-forwarder-journal.log" 2>&1 || true
+    ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nixos-buildermon --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-monitor-journal.log" 2>&1 || true
   fi
 
   if ${INCUS_BIN} info "${CLIENT}" >/dev/null 2>&1; then
@@ -41,7 +44,16 @@ cleanup() {
   ${INCUS_BIN} delete "${BUILDER}" >/dev/null 2>&1 || true
 }
 
-trap cleanup EXIT
+# Heartbeat so CI logs show the script is alive and where it is in time.
+# GitHub Actions does not expose live logs via the API; without this
+# a silent hang looks identical to a slow-but-working build.
+( while true; do
+    printf '[incus-smoke] [%s] heartbeat - script still running\n' "$(date -u +%H:%M:%S)"
+    sleep 30
+  done ) &
+HEARTBEAT_PID=$!
+
+trap 'kill "${HEARTBEAT_PID}" 2>/dev/null; cleanup' EXIT
 
 ensure_dep() {
   local name="$1"
@@ -295,15 +307,25 @@ SERVER_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /ro
 log "Building web assets package"
 WEB_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#web" | tr -d '\r')"
 
-log "Starting daemon log forwarder (journalctl -> tee -> /var/log/nom-output.log)"
-# </dev/null is required: incus exec without -t uses pipes for stdin/stdout/stderr.
-# Without it, the background process inherits the incus stdin pipe (FD 0) and
-# holds it open forever (journalctl -f never exits), causing incus exec to block.
-# nohup only redirects stdin when it detects a terminal, which there isn't here.
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log' </dev/null >/var/log/nom-forwarder.log 2>&1 &"
+log "Starting daemon log forwarder via systemd-run (journalctl -> tee -> /var/log/nom-output.log)"
+# Use systemd-run so the process is completely decoupled from this incus exec
+# session. nohup/& is unreliable without a PTY: incus exec (like SSH without -t)
+# uses pipes for FDs, and background processes can keep those pipes alive even
+# with </dev/null redirects depending on kernel buffering. systemd-run avoids
+# all of that by handing the process off to systemd immediately.
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  "systemd-run --unit=nom-forwarder --description='NOM log forwarder' \
+    /bin/sh -c 'touch /var/log/nom-output.log; journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log'"
+log "Daemon log forwarder started (returned from incus exec - good)"
 
-log "Starting nixos-builder-mon web server"
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "nohup /bin/sh -lc 'exec env DIOXUS_ASSET_ROOT=${WEB_OUT} IP=0.0.0.0 PORT=${MONITOR_PORT} ${SERVER_OUT}/bin/nixos-builder-mon' </dev/null >/var/log/nixos-builder-mon.log 2>&1 &"
+log "Starting nixos-builder-mon web server via systemd-run"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  "systemd-run --unit=nixos-buildermon --description='nixos-buildermon server' \
+    --setenv=DIOXUS_ASSET_ROOT=${WEB_OUT} \
+    --setenv=IP=0.0.0.0 \
+    --setenv=PORT=${MONITOR_PORT} \
+    ${SERVER_OUT}/bin/nixos-builder-mon"
+log "Web server started (returned from incus exec - good)"
 
 log "Waiting for web UI health endpoint"
 for _ in $(seq 1 30); do

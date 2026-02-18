@@ -47,6 +47,7 @@
             cargo
             wasm-bindgen-cli
             rustPlatform.cargoSetupHook
+            llvmPackages.lld
           ];
 
           buildPhase = ''

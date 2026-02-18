@@ -334,6 +334,13 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
     --working-directory=${DIST_DIR} \
     ${DIST_DIR}/nixos-buildermon"
 log "Web server started (returned from incus exec - good)"
+
+# NixOS firewall blocks all incoming ports by default; open the monitor port.
+log "Opening port ${MONITOR_PORT} in NixOS firewall"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  "nft add rule inet nixos-fw input-allow tcp dport ${MONITOR_PORT} accept 2>/dev/null || \
+   iptables -I INPUT 1 -p tcp --dport ${MONITOR_PORT} -j ACCEPT 2>/dev/null || true"
+
 # Brief pause then check unit status so a crash is visible in logs immediately
 sleep 2
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'systemctl status nixos-buildermon --no-pager 2>&1 || true'

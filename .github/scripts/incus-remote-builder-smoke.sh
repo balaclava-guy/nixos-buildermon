@@ -368,8 +368,9 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 
 # literal in the derivation — Nix mounts it read-only in the sandbox and we
 # set PATH to its bin directory.
 log "Resolving coreutils path on builder for sandbox"
+# NixOS uses a multicall coreutils binary; strip everything from /bin/ onward.
 BUILDER_COREUTILS=$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
-  "p=\$(readlink -f \$(which mkdir) 2>/dev/null); echo \${p%/bin/mkdir}")
+  "p=\$(readlink -f \$(which mkdir) 2>/dev/null); echo \${p%/bin/*}")
 log "Builder coreutils: ${BUILDER_COREUTILS}"
 
 log "Writing marker flake on client"
@@ -391,7 +392,7 @@ EOF
 ${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${CLIENT}/root/remote-test/flake.nix"
 
 log "Triggering remote build from client -> builder"
-timeout 300 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3'; /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
+timeout 300 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3'; /run/current-system/sw/bin/nix build ${NIX_FLAGS} --impure --option substituters https://cache.nixos.org /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
 
 log "Waiting for forwarder to flush marker"
 sleep 6

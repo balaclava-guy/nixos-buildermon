@@ -92,6 +92,7 @@
               libiconv
             ] ++ lib.optionals pkgs.stdenv.isLinux [
               gcc
+              llvmPackages.lld
             ];
             text = ''
               ${lib.optionalString pkgs.stdenv.isDarwin ''
@@ -115,6 +116,7 @@
               libiconv
             ] ++ lib.optionals pkgs.stdenv.isLinux [
               gcc
+              llvmPackages.lld
             ];
             text = ''
               ${lib.optionalString pkgs.stdenv.isDarwin ''

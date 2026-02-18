@@ -313,14 +313,20 @@ log "Starting daemon log forwarder via systemd-run (journalctl -> tee -> /var/lo
 # uses pipes for FDs, and background processes can keep those pipes alive even
 # with </dev/null redirects depending on kernel buffering. systemd-run avoids
 # all of that by handing the process off to systemd immediately.
+# NixOS systemd services run with a minimal PATH that excludes
+# /run/current-system/sw/bin where touch, tee, journalctl etc live.
+# Pass the full NixOS PATH explicitly so the service shell finds everything.
+NIXOS_PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:/usr/local/bin:/usr/bin:/bin"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
   "systemd-run --unit=nom-forwarder --description='NOM log forwarder' \
+    --setenv=PATH=${NIXOS_PATH} \
     /bin/sh -c 'touch /var/log/nom-output.log; journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log'"
 log "Daemon log forwarder started (returned from incus exec - good)"
 
 log "Starting nixos-builder-mon web server via systemd-run"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
   "systemd-run --unit=nixos-buildermon --description='nixos-buildermon server' \
+    --setenv=PATH=${NIXOS_PATH} \
     --setenv=DIOXUS_ASSET_ROOT=${WEB_OUT} \
     --setenv=IP=0.0.0.0 \
     --setenv=PORT=${MONITOR_PORT} \

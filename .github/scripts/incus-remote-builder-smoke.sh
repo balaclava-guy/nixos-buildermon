@@ -362,10 +362,17 @@ ${INCUS_BIN} file pull "${CLIENT}/root/.ssh/id_ed25519.pub" "${WORKDIR}/client_i
 ${INCUS_BIN} file push "${WORKDIR}/client_id_ed25519.pub" "${BUILDER}/root/client_id_ed25519.pub"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && cat /root/client_id_ed25519.pub >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
 
+log "Disabling Nix sandbox on builder so marker derivation can use system coreutils"
+# builtins.derivation with no inputs has an empty PATH in the sandbox - mkdir not found.
+# This is a throwaway test VM so disabling sandbox is fine.
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  "printf '\nsandbox = false\n' >> /etc/nix/nix.conf && systemctl restart nix-daemon"
+wait_for_nix_daemon "${BUILDER}"
+
 log "Writing marker flake on client"
 # Use builtins.derivation with no inputs so we never fetch nixpkgs from
 # GitHub (that tarball is huge and reliably hangs inside the VM).
-# Nix provides /bin/sh in the build sandbox automatically.
+# PATH is set explicitly so mkdir is found when sandbox = false.
 cat > "${WORKDIR}/remote-test-flake.nix" <<EOF
 {
   outputs = { self }: {
@@ -373,6 +380,7 @@ cat > "${WORKDIR}/remote-test-flake.nix" <<EOF
       name = "incus-marker";
       system = "x86_64-linux";
       builder = "/bin/sh";
+      PATH = "/run/current-system/sw/bin:/usr/bin:/bin";
       args = [ "-c" "echo '${MARKER}' >&2; mkdir \$out; echo ok > \$out/result" ];
     };
   };

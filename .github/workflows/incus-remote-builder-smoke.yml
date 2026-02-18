@@ -27,6 +27,9 @@ jobs:
         with:
           kvm: true
 
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
       - name: Install Incus and runtime dependencies
         run: sudo apt-get update && sudo apt-get install -y incus qemu-system-x86 jq curl
 

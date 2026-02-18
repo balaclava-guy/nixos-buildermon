@@ -28,9 +28,11 @@ cleanup() {
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nom-output.log" "${ARTIFACT_DIR}/builder-nom-output.log" >/dev/null 2>&1 || true
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nom-forwarder.log" "${ARTIFACT_DIR}/builder-nom-forwarder.log" >/dev/null 2>&1 || true
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nixos-builder-mon.log" "${ARTIFACT_DIR}/builder-monitor.log" >/dev/null 2>&1 || true
-    # Also capture systemd journal for our transient units (if systemd-run was used)
+    # Capture systemd journal for our transient units
     ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nom-forwarder --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-nom-forwarder-journal.log" 2>&1 || true
     ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nixos-buildermon --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-monitor-journal.log" 2>&1 || true
+    # Capture dx build dist layout for debugging
+    ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'find /root/nixos-builder-mon/dist -maxdepth 3 2>/dev/null | sort || true' > "${ARTIFACT_DIR}/dist-layout.txt" 2>&1 || true
   fi
 
   if ${INCUS_BIN} info "${CLIENT}" >/dev/null 2>&1; then
@@ -301,36 +303,35 @@ wait_for_nix_daemon() {
 
 wait_for_nix_daemon "${BUILDER}"
 
-log "Building server package"
-SERVER_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#server" | tr -d '\r')"
+log "Building with dx (fullstack: server binary + web assets in correct layout)"
+# nix run .#dx-build runs: dx build --platform web --release --fullstack true --features web
+# This produces dist/ with the server binary and dist/public/ with WASM/assets,
+# exactly the layout Dioxus expects at runtime - no DIOXUS_ASSET_ROOT gymnastics needed.
+timeout 1800 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix run ${NIX_FLAGS} --option substituters https://cache.nixos.org .#dx-build"
 
-log "Building web assets package"
-WEB_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#web" | tr -d '\r')"
+DIST_DIR="/root/nixos-builder-mon/dist"
+log "dx build output:"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "find ${DIST_DIR} -maxdepth 3 | sort"
 
-log "Starting daemon log forwarder via systemd-run (journalctl -> tee -> /var/log/nom-output.log)"
-# Use systemd-run so the process is completely decoupled from this incus exec
-# session. nohup/& is unreliable without a PTY: incus exec (like SSH without -t)
-# uses pipes for FDs, and background processes can keep those pipes alive even
-# with </dev/null redirects depending on kernel buffering. systemd-run avoids
-# all of that by handing the process off to systemd immediately.
-# NixOS systemd services run with a minimal PATH that excludes
-# /run/current-system/sw/bin where touch, tee, journalctl etc live.
-# Pass the full NixOS PATH explicitly so the service shell finds everything.
+# NixOS systemd services run with a minimal PATH; pass the full profile PATH.
 NIXOS_PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:/usr/local/bin:/usr/bin:/bin"
+
+log "Starting daemon log forwarder via systemd-run"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
   "systemd-run --unit=nom-forwarder --description='NOM log forwarder' \
     --setenv=PATH=${NIXOS_PATH} \
     /bin/sh -c 'touch /var/log/nom-output.log; journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log'"
 log "Daemon log forwarder started (returned from incus exec - good)"
 
-log "Starting nixos-builder-mon web server via systemd-run"
+log "Starting nixos-buildermon web server via systemd-run (CWD=dist so it finds public/)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
   "systemd-run --unit=nixos-buildermon --description='nixos-buildermon server' \
     --setenv=PATH=${NIXOS_PATH} \
-    --setenv=DIOXUS_ASSET_ROOT=${WEB_OUT} \
     --setenv=IP=0.0.0.0 \
     --setenv=PORT=${MONITOR_PORT} \
-    ${SERVER_OUT}/bin/nixos-buildermon"
+    --working-directory=${DIST_DIR} \
+    ${DIST_DIR}/nixos-buildermon"
 log "Web server started (returned from incus exec - good)"
 # Brief pause then check unit status so a crash is visible in logs immediately
 sleep 2

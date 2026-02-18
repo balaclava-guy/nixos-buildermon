@@ -354,11 +354,25 @@ for _ in $(seq 1 30); do
 done
 curl --fail --silent --max-time 10 "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null
 
-log "Writing marker flake"
-# Use builtins.derivation with no inputs so we never fetch nixpkgs.
-# Run directly on the builder with --option sandbox false (root is a trusted user
-# so the daemon accepts this). The build still goes through the nix-daemon so
-# the monitor captures it. PATH is set for mkdir availability.
+log "Preparing SSH access from client to builder"
+timeout 60 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'if systemctl list-unit-files | grep -q "^sshd.service"; then systemctl enable --now sshd; elif systemctl list-unit-files | grep -q "^ssh.service"; then systemctl enable --now ssh; fi'
+
+${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && if [ ! -f /root/.ssh/id_ed25519 ]; then ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519; fi'
+${INCUS_BIN} file pull "${CLIENT}/root/.ssh/id_ed25519.pub" "${WORKDIR}/client_id_ed25519.pub"
+${INCUS_BIN} file push "${WORKDIR}/client_id_ed25519.pub" "${BUILDER}/root/client_id_ed25519.pub"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && cat /root/client_id_ed25519.pub >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
+
+# Remote builds go through nix-daemon (required for monitor to capture output).
+# The sandbox blocks mkdir because builtins.derivation has no inputs by default.
+# Fix: resolve the builder's coreutils store path and embed it as a Nix path
+# literal in the derivation — Nix mounts it read-only in the sandbox and we
+# set PATH to its bin directory.
+log "Resolving coreutils path on builder for sandbox"
+BUILDER_COREUTILS=$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  "p=\$(readlink -f \$(which mkdir) 2>/dev/null); echo \${p%/bin/mkdir}")
+log "Builder coreutils: ${BUILDER_COREUTILS}"
+
+log "Writing marker flake on client"
 cat > "${WORKDIR}/remote-test-flake.nix" <<EOF
 {
   outputs = { self }: {
@@ -366,19 +380,18 @@ cat > "${WORKDIR}/remote-test-flake.nix" <<EOF
       name = "incus-marker";
       system = "x86_64-linux";
       builder = "/bin/sh";
-      PATH = "/run/current-system/sw/bin:/usr/bin:/bin";
+      coreutils = ${BUILDER_COREUTILS};
+      PATH = "${BUILDER_COREUTILS}/bin";
       args = [ "-c" "echo '${MARKER}' >&2; mkdir \$out; echo ok > \$out/result" ];
     };
   };
 }
 EOF
 
-${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${BUILDER}/root/remote-test/flake.nix"
+${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${CLIENT}/root/remote-test/flake.nix"
 
-log "Triggering marker build on builder (sandbox=false, goes through nix-daemon)"
-timeout 120 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
-  "/run/current-system/sw/bin/nix build ${NIX_FLAGS} --option sandbox false \
-   --option substituters https://cache.nixos.org /root/remote-test#marker -L"
+log "Triggering remote build from client -> builder"
+timeout 300 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3'; /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
 
 log "Waiting for forwarder to flush marker"
 sleep 6

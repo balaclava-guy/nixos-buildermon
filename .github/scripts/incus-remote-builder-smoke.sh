@@ -290,10 +290,10 @@ wait_for_nix_daemon() {
 wait_for_nix_daemon "${BUILDER}"
 
 log "Building server package"
-SERVER_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#server" | tr -d '\r')"
+SERVER_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#server" | tr -d '\r')"
 
 log "Building web assets package"
-WEB_OUT="$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#web" | tr -d '\r')"
+WEB_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#web" | tr -d '\r')"
 
 log "Starting daemon log forwarder (journalctl -> tee -> /var/log/nom-output.log)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log' >/var/log/nom-forwarder.log 2>&1 &"
@@ -311,7 +311,7 @@ done
 curl --fail --silent "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null
 
 log "Preparing SSH access from client to builder"
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'if systemctl list-unit-files | grep -q "^sshd.service"; then systemctl enable --now sshd; elif systemctl list-unit-files | grep -q "^ssh.service"; then systemctl enable --now ssh; fi'
+timeout 60 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'if systemctl list-unit-files | grep -q "^sshd.service"; then systemctl enable --now sshd; elif systemctl list-unit-files | grep -q "^ssh.service"; then systemctl enable --now ssh; fi'
 
 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && if [ ! -f /root/.ssh/id_ed25519 ]; then ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519; fi'
 ${INCUS_BIN} file pull "${CLIENT}/root/.ssh/id_ed25519.pub" "${WORKDIR}/client_id_ed25519.pub"
@@ -338,7 +338,7 @@ EOF
 ${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${CLIENT}/root/remote-test/flake.nix"
 
 log "Triggering remote build from client -> builder"
-${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'; /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
+timeout 300 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3'; /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
 
 log "Waiting for forwarder to flush marker"
 sleep 6

@@ -324,7 +324,7 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
     --setenv=DIOXUS_ASSET_ROOT=${WEB_OUT} \
     --setenv=IP=0.0.0.0 \
     --setenv=PORT=${MONITOR_PORT} \
-    ${SERVER_OUT}/bin/nixos-builder-mon"
+    ${SERVER_OUT}/bin/nixos-buildermon"
 log "Web server started (returned from incus exec - good)"
 
 log "Waiting for web UI health endpoint"

@@ -38,14 +38,18 @@
           name = "nixos-buildermon-assets";
           src = ./.;
 
+          cargoDeps = pkgs.rustPlatform.importCargoLock {
+            lockFile = ./Cargo.lock;
+          };
+
           nativeBuildInputs = with pkgs; [
             rustc
             cargo
             wasm-bindgen-cli
+            rustPlatform.cargoSetupHook
           ];
 
           buildPhase = ''
-            export CARGO_HOME=$PWD/.cargo
             export CARGO_TARGET_DIR=$PWD/target
 
             cargo build --release --target wasm32-unknown-unknown --features web

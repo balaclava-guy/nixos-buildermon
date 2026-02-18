@@ -296,10 +296,14 @@ log "Building web assets package"
 WEB_OUT="$(timeout 1200 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix build ${NIX_FLAGS} --option substituters https://cache.nixos.org --no-link --print-out-paths .#web" | tr -d '\r')"
 
 log "Starting daemon log forwarder (journalctl -> tee -> /var/log/nom-output.log)"
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log' >/var/log/nom-forwarder.log 2>&1 &"
+# </dev/null is required: incus exec without -t uses pipes for stdin/stdout/stderr.
+# Without it, the background process inherits the incus stdin pipe (FD 0) and
+# holds it open forever (journalctl -f never exits), causing incus exec to block.
+# nohup only redirects stdin when it detects a terminal, which there isn't here.
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "touch /var/log/nom-output.log && nohup /bin/sh -lc 'exec journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log' </dev/null >/var/log/nom-forwarder.log 2>&1 &"
 
 log "Starting nixos-builder-mon web server"
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "nohup /bin/sh -lc 'exec env DIOXUS_ASSET_ROOT=${WEB_OUT} IP=0.0.0.0 PORT=${MONITOR_PORT} ${SERVER_OUT}/bin/nixos-builder-mon' >/var/log/nixos-builder-mon.log 2>&1 &"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "nohup /bin/sh -lc 'exec env DIOXUS_ASSET_ROOT=${WEB_OUT} IP=0.0.0.0 PORT=${MONITOR_PORT} ${SERVER_OUT}/bin/nixos-builder-mon' </dev/null >/var/log/nixos-builder-mon.log 2>&1 &"
 
 log "Waiting for web UI health endpoint"
 for _ in $(seq 1 30); do

@@ -31,8 +31,8 @@ cleanup() {
     # Capture systemd journal for our transient units
     ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nom-forwarder --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-nom-forwarder-journal.log" 2>&1 || true
     ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nixos-buildermon --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-monitor-journal.log" 2>&1 || true
-    # Capture dx build dist layout for debugging
-    ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'find /root/nixos-builder-mon/dist -maxdepth 3 2>/dev/null | sort || true' > "${ARTIFACT_DIR}/dist-layout.txt" 2>&1 || true
+    # Capture dx build output layout for debugging
+    ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'find /root/nixos-builder-mon/target/dx -maxdepth 5 2>/dev/null | sort || true' > "${ARTIFACT_DIR}/dist-layout.txt" 2>&1 || true
   fi
 
   if ${INCUS_BIN} info "${CLIENT}" >/dev/null 2>&1; then
@@ -305,12 +305,13 @@ wait_for_nix_daemon "${BUILDER}"
 
 log "Building with dx (fullstack: server binary + web assets in correct layout)"
 # nix run .#dx-build runs: dx build --platform web --release --fullstack true --features web
-# This produces dist/ with the server binary and dist/public/ with WASM/assets,
-# exactly the layout Dioxus expects at runtime - no DIOXUS_ASSET_ROOT gymnastics needed.
+# Dioxus 0.7 CLI outputs to target/dx/{name}/release/web/ with the server binary
+# at the root and public/ alongside it - no DIOXUS_ASSET_ROOT gymnastics needed.
 timeout 1800 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
   "cd /root/nixos-builder-mon && /run/current-system/sw/bin/nix run ${NIX_FLAGS} --option substituters https://cache.nixos.org .#dx-build"
 
-DIST_DIR="/root/nixos-builder-mon/dist"
+# Dioxus 0.7 CLI outputs to target/dx/{name}/{profile}/web/ (not dist/)
+DIST_DIR="/root/nixos-builder-mon/target/dx/nixos-buildermon/release/web"
 log "dx build output:"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "find ${DIST_DIR} -maxdepth 3 | sort"
 

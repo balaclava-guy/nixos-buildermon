@@ -90,6 +90,8 @@
               wasm-bindgen-cli
             ] ++ lib.optionals pkgs.stdenv.isDarwin [
               libiconv
+            ] ++ lib.optionals pkgs.stdenv.isLinux [
+              gcc
             ];
             text = ''
               ${lib.optionalString pkgs.stdenv.isDarwin ''
@@ -111,6 +113,8 @@
               wasm-bindgen-cli
             ] ++ lib.optionals pkgs.stdenv.isDarwin [
               libiconv
+            ] ++ lib.optionals pkgs.stdenv.isLinux [
+              gcc
             ];
             text = ''
               ${lib.optionalString pkgs.stdenv.isDarwin ''

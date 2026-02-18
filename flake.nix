@@ -52,7 +52,7 @@
           buildPhase = ''
             export CARGO_TARGET_DIR=$PWD/target
 
-            cargo build --release --target wasm32-unknown-unknown --features web
+            cargo build --release --target wasm32-unknown-unknown --no-default-features --features web
 
             mkdir -p wasm
             wasm-bindgen --target web --out-dir wasm \

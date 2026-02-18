@@ -26,10 +26,7 @@ cleanup() {
     ${INCUS_BIN} file pull "${BUILDER}/root/nix-daemon.journal.log" "${ARTIFACT_DIR}/builder-nix-daemon.journal.log" >/dev/null 2>&1 || true
     ${INCUS_BIN} file pull "${BUILDER}/root/system.journal.log" "${ARTIFACT_DIR}/builder-system.journal.log" >/dev/null 2>&1 || true
     ${INCUS_BIN} file pull "${BUILDER}/var/log/nom-output.log" "${ARTIFACT_DIR}/builder-nom-output.log" >/dev/null 2>&1 || true
-    ${INCUS_BIN} file pull "${BUILDER}/var/log/nom-forwarder.log" "${ARTIFACT_DIR}/builder-nom-forwarder.log" >/dev/null 2>&1 || true
-    ${INCUS_BIN} file pull "${BUILDER}/var/log/nixos-builder-mon.log" "${ARTIFACT_DIR}/builder-monitor.log" >/dev/null 2>&1 || true
-    # Capture systemd journal for our transient units
-    ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nom-forwarder --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-nom-forwarder-journal.log" 2>&1 || true
+    # Capture systemd journal for the buildermon server unit
     ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'journalctl -u nixos-buildermon --no-pager -n 100 2>/dev/null || true' > "${ARTIFACT_DIR}/builder-monitor-journal.log" 2>&1 || true
     # Capture dx build output layout for debugging
     ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'find /root/nixos-builder-mon/target/dx -maxdepth 5 2>/dev/null | sort || true' > "${ARTIFACT_DIR}/dist-layout.txt" 2>&1 || true
@@ -318,12 +315,8 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc "find ${DIST_DIR} -maxdepth 3 | so
 # NixOS systemd services run with a minimal PATH; pass the full profile PATH.
 NIXOS_PATH="/run/current-system/sw/bin:/run/current-system/sw/sbin:/usr/local/bin:/usr/bin:/bin"
 
-log "Starting daemon log forwarder via systemd-run"
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
-  "systemd-run --unit=nom-forwarder --description='NOM log forwarder' \
-    --setenv=PATH=${NIXOS_PATH} \
-    /bin/sh -c 'touch /var/log/nom-output.log; journalctl -u nix-daemon -n 0 --no-pager --no-hostname -o cat -f 2>&1 | tee -a /var/log/nom-output.log'"
-log "Daemon log forwarder started (returned from incus exec - good)"
+log "Creating log file for nixos-buildermon to watch"
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /var/log && touch /var/log/nom-output.log'
 
 log "Starting nixos-buildermon web server via systemd-run (CWD=dist so it finds public/)"
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
@@ -355,56 +348,91 @@ done
 curl --fail --silent --max-time 10 "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null
 
 log "Preparing SSH access from client to builder"
-timeout 60 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'if systemctl list-unit-files | grep -q "^sshd.service"; then systemctl enable --now sshd; elif systemctl list-unit-files | grep -q "^ssh.service"; then systemctl enable --now ssh; fi'
+timeout 60 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  'if systemctl list-unit-files | grep -q "^sshd.service"; then
+     systemctl enable --now sshd
+   elif systemctl list-unit-files | grep -q "^ssh.service"; then
+     systemctl enable --now ssh
+   fi'
 
-${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && if [ ! -f /root/.ssh/id_ed25519 ]; then ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519; fi'
+${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc \
+  'mkdir -p /root/.ssh && chmod 700 /root/.ssh && \
+   if [ ! -f /root/.ssh/id_ed25519 ]; then \
+     ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519; \
+   fi'
 ${INCUS_BIN} file pull "${CLIENT}/root/.ssh/id_ed25519.pub" "${WORKDIR}/client_id_ed25519.pub"
 ${INCUS_BIN} file push "${WORKDIR}/client_id_ed25519.pub" "${BUILDER}/root/client_id_ed25519.pub"
-${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && cat /root/client_id_ed25519.pub >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
+  'mkdir -p /root/.ssh && chmod 700 /root/.ssh && \
+   cat /root/client_id_ed25519.pub >> /root/.ssh/authorized_keys && \
+   chmod 600 /root/.ssh/authorized_keys'
 
-# Remote builds go through nix-daemon (required for monitor to capture output).
-# The sandbox blocks mkdir because builtins.derivation has no inputs by default.
-# Fix: resolve the builder's coreutils store path and embed it as a Nix path
-# literal in the derivation — Nix mounts it read-only in the sandbox and we
-# set PATH to its bin directory.
-log "Resolving coreutils path on builder for sandbox"
-# NixOS uses a multicall coreutils binary; strip everything from /bin/ onward.
-BUILDER_COREUTILS=$(${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
-  "p=\$(readlink -f \$(which mkdir) 2>/dev/null); echo \${p%/bin/*}")
-log "Builder coreutils: ${BUILDER_COREUTILS}"
+# Integration test: CLIENT SSH-triggers a nix build ON the BUILDER.
+# The build runs locally on the builder so its output can be piped directly
+# to /var/log/nom-output.log, which nixos-buildermon is already watching.
+#
+# Why not nix distributed builds (ssh-ng client -> builder)?
+# With ssh-ng the build log flows back to the CLIENT over the Nix protocol;
+# the builder's nix-daemon never writes it to its own journal or any local
+# file.  SSH-triggered local build is the correct integration pattern.
+#
+# Why echo ok > $out instead of mkdir $out?
+# builtins.derivation in the Nix sandbox only provides /bin/sh; everything
+# else must be listed as an explicit input (Nix path value, not a string).
+# echo is a sh built-in; > is shell redirection; no external tools needed.
+# $out can be a file — Nix outputs don't have to be directories.
 
-log "Writing marker flake on client"
-cat > "${WORKDIR}/remote-test-flake.nix" <<EOF
-{
-  outputs = { self }: {
-    packages.x86_64-linux.marker = builtins.derivation {
-      name = "incus-marker";
-      system = "x86_64-linux";
-      builder = "/bin/sh";
-      coreutils = ${BUILDER_COREUTILS};
-      PATH = "${BUILDER_COREUTILS}/bin";
-      args = [ "-c" "echo '${MARKER}' >&2; mkdir \$out; echo ok > \$out/result" ];
-    };
-  };
-}
-EOF
+log "Writing marker derivation to builder"
+# Write to a host-side temp file first (avoids incus stdin piping quirks),
+# then push.  Unquoted heredoc so ${NIX_FLAGS} and ${MARKER} expand here;
+# \$out stays as a literal $out inside the generated script.
+cat > "${WORKDIR}/run-marker-build.sh" <<SCRIPT
+#!/bin/sh
+set -euo pipefail
+exec /run/current-system/sw/bin/nix build \
+  ${NIX_FLAGS} \
+  --no-link \
+  --expr 'builtins.derivation {
+    name    = "incus-marker";
+    system  = "x86_64-linux";
+    builder = "/bin/sh";
+    args    = [ "-c" "echo ${MARKER} >&2; echo ok > \$out" ];
+  }' \
+  -L 2>&1 | tee -a /var/log/nom-output.log
+SCRIPT
+chmod +x "${WORKDIR}/run-marker-build.sh"
+${INCUS_BIN} file push "${WORKDIR}/run-marker-build.sh" "${BUILDER}/tmp/run-marker-build.sh"
+${INCUS_BIN} exec "${BUILDER}" -- chmod +x /tmp/run-marker-build.sh
 
-${INCUS_BIN} file push --create-dirs "${WORKDIR}/remote-test-flake.nix" "${CLIENT}/root/remote-test/flake.nix"
+log "Client SSH-triggering marker build on builder"
+timeout 180 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc \
+  "ssh -o StrictHostKeyChecking=no \
+       -o UserKnownHostsFile=/dev/null \
+       -o ConnectTimeout=30 \
+       root@${BUILDER_IP} /tmp/run-marker-build.sh"
 
-log "Triggering remote build from client -> builder"
-timeout 300 ${INCUS_BIN} exec "${CLIENT}" -- /bin/sh -lc "export NIX_SSHOPTS='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3'; /run/current-system/sw/bin/nix build ${NIX_FLAGS} --impure --option substituters https://cache.nixos.org /root/remote-test#marker --max-jobs 0 --builders 'ssh-ng://root@${BUILDER_IP} x86_64-linux' -L"
-
-log "Waiting for forwarder to flush marker"
+log "Waiting for nixos-buildermon to poll the log file (server polls every ~1s)"
 sleep 6
 
-${INCUS_BIN} file pull "${BUILDER}/var/log/nom-output.log" "${ARTIFACT_DIR}/builder-nom-output.log"
+# Pull the log for artifact inspection.
+${INCUS_BIN} file pull "${BUILDER}/var/log/nom-output.log" "${ARTIFACT_DIR}/builder-nom-output.log" || true
 
-if ! grep -q "${MARKER}" "${ARTIFACT_DIR}/builder-nom-output.log"; then
-  log "Marker not found in /var/log/nom-output.log"
+# Verify via the SSE log endpoint: the server's initial snapshot must contain
+# our marker.  -N (no buffer) + head -c ensures curl exits after reading
+# enough data without hanging on the open stream.
+log "Querying /api/stream/logs SSE endpoint for marker"
+SSE_RESPONSE=$(timeout 20 curl --fail --silent --max-time 15 \
+  -H 'Accept: text/event-stream' \
+  -N "http://${BUILDER_IP}:${MONITOR_PORT}/api/stream/logs" \
+  2>/dev/null | head -c 131072) || true
+
+if echo "${SSE_RESPONSE}" | grep -q "${MARKER}"; then
+  log "Smoke test passed: marker found in monitor log stream"
+else
+  log "Marker not found in SSE response from /api/stream/logs"
+  log "SSE response excerpt: ${SSE_RESPONSE:0:800}"
   exit 1
 fi
-
-log "Smoke test passed: marker found in monitor log stream"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {

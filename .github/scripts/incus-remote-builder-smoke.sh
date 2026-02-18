@@ -364,9 +364,12 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'mkdir -p /root/.ssh && chmod 700 
 
 log "Disabling Nix sandbox on builder so marker derivation can use system coreutils"
 # builtins.derivation with no inputs has an empty PATH in the sandbox - mkdir not found.
+# /etc/nix/nix.conf is a read-only symlink on NixOS; write to conf.d/ instead.
+# Nix 2.18+ reads /etc/nix/conf.d/*.conf automatically.
 # This is a throwaway test VM so disabling sandbox is fine.
 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
-  "printf '\nsandbox = false\n' >> /etc/nix/nix.conf && systemctl restart nix-daemon"
+  "mkdir -p /etc/nix/conf.d && printf 'sandbox = false\n' > /etc/nix/conf.d/smoke-test.conf && \
+   (systemctl try-restart nix-daemon 2>/dev/null || pkill -x nix-daemon 2>/dev/null || true)"
 wait_for_nix_daemon "${BUILDER}"
 
 log "Writing marker flake on client"

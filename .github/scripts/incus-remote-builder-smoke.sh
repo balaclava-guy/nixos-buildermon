@@ -332,15 +332,18 @@ ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc \
     --setenv=PORT=${MONITOR_PORT} \
     ${SERVER_OUT}/bin/nixos-buildermon"
 log "Web server started (returned from incus exec - good)"
+# Brief pause then check unit status so a crash is visible in logs immediately
+sleep 2
+${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'systemctl status nixos-buildermon --no-pager 2>&1 || true'
 
 log "Waiting for web UI health endpoint"
 for _ in $(seq 1 30); do
-  if curl --fail --silent "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null; then
+  if curl --fail --silent --max-time 5 "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null; then
     break
   fi
   sleep 2
 done
-curl --fail --silent "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null
+curl --fail --silent --max-time 10 "http://${BUILDER_IP}:${MONITOR_PORT}/" >/dev/null
 
 log "Preparing SSH access from client to builder"
 timeout 60 ${INCUS_BIN} exec "${BUILDER}" -- /bin/sh -lc 'if systemctl list-unit-files | grep -q "^sshd.service"; then systemctl enable --now sshd; elif systemctl list-unit-files | grep -q "^ssh.service"; then systemctl enable --now ssh; fi'
